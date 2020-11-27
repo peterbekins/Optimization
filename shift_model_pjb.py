@@ -1,8 +1,6 @@
 from ortools.sat.python import cp_model
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
 import time
 
 # timer to measure computational time
@@ -14,9 +12,20 @@ residents = 4
 weeks = 4
 shifts = weeks * 21
 
-# initialize shift requests with random variable for now
-shift_requests = np.random.randint(2, size = (residents, shifts))
 
+# initialize shift requests with random variable for now
+# this algorithm has each resident rate each shift 1-3
+# I choose without replacement to ensure that the requests are similar
+# each week, each resident will have 7 shifts rated 3, etc. 
+week_ratings = [3,3,3,3,3,3,3,2,2,2,2,2,2,2,1,1,1,1,1,1,1]
+ratings = np.repeat(week_ratings, weeks)
+shift_requests = []
+for r in range(residents):
+    week_requests = []
+    for w in range(weeks):
+        week_requests.append(np.random.choice(week_ratings, 21, replace=False))
+    shift_requests.append(np.hstack(week_requests))
+    
 # Set min/max for resident per shift
 min_per_shift = 1
 max_per_shift = 2
@@ -68,6 +77,9 @@ for r in range(residents):
         shift_model.Add(y[(r,s)] + x[(r,s+3)] <= 1) 
         shift_model.Add(y[(r,s)] + x[(r,s+4)] <= 1)
 
+    # This also checks the edge so 4 shifts can't be scheduled at the end of the period
+    edge = x[(r, shifts-1)] + x[(r, shifts-2)]+ x[(r, shifts-3)] + x[(r, shifts-4)] 
+    shift_model.Add(edge < 4)
 
 # 3. Objective function
 # Maximize the number of requested shifts assigned to each resident
@@ -81,31 +93,78 @@ shift_model.Maximize(
 solver = cp_model.CpSolver()
 solver.Solve(shift_model)
 
-# 5. Chart
+# 5. Grid plot of to show preference matrix
+plt.figure(figsize=(8,3))
+plt.imshow(shift_requests, cmap="Blues",aspect = 3)
+plt.axvline(20.5, color='black')
+plt.axvline(41.5, color='black')
+plt.axvline(62.5, color='black')
 
-r_cat = []
-r_shift_num = []
-r_shift_type = []
+# add borders
+for res in range(residents):
+    for shift in range(shifts):
+        r = plt.Rectangle((shift-0.5,res-0.5), 1,1, facecolor="none", edgecolor="white", linewidth=1)
+        plt.gca().add_patch(r)
+
+for i in range(residents):
+    for j in range(shifts):
+        text = plt.text(j, i, shift_requests[i][j],
+                       ha="center", va="center", color="w", fontsize=6)
+
+week_set = [10.5,31.5,52.5,73.5]
+plt.tick_params(axis='both', bottom=False)
+plt.xticks(week_set,['Week 1', 'Week 2','Week 3','Week 4'],fontsize=10)
+plt.yticks([0,1,2,3],['R1','R2','R3','R4'],fontsize=8)
+plt.tick_params(axis = "both", which = "both", bottom = False, left = False)
+
+# 6. Grid Plot of schedule
+
+shift_matrix = []
+value_matrix = []
 for r in range(residents):
+    shift_result = []
+    value = 0
+    tot_shifts = 0
     for s in range(shifts):
-        r_cat.append('R_%i'% (r))
-        r_shift_num.append(s)
         if solver.Value(x[(r, s)]) == 1:
-            if shift_requests[r][s] == 1:
-                r_shift_type.append(1)
+            value = value + shift_requests[r][s]
+            tot_shifts = tot_shifts + 1
+            if shift_requests[r][s] > 1:
+                shift_result.append((128,128,128)) # dark gray for shift on
             else:
-                r_shift_type.append(-1)
+                shift_result.append((204,51,0)) # reddish for on but didn't request
         else:
-            r_shift_type.append(0)
+            shift_result.append((224,224,224)) # light gray for shift off
+    shift_matrix.append(shift_result)
+    value_matrix.append((r,tot_shifts, value))
 
-df = pd.DataFrame(list(zip(r_cat, r_shift_num,r_shift_type)), columns = ['Resident', 'Shift_Num','Shift_Type'])
- 
-sns.catplot(x='Shift_Num', y='Resident', 
-            hue='Shift_Type', 
-            hue_order=[1,0,-1],
-            palette=['green','gray','red'],
-            jitter=False,
-            data=df)
+plt.figure(figsize=(8,3))
+
+plt.imshow(shift_matrix, aspect = 3)
+plt.axvline(20.5, color='black')
+plt.axvline(41.5, color='black')
+plt.axvline(62.5, color='black')
+
+
+# add borders
+for res in range(residents):
+    for shift in range(shifts):
+        r = plt.Rectangle((shift-0.5,res-0.5), 1,1, facecolor="none", edgecolor="white", linewidth=1)
+        plt.gca().add_patch(r)
+
+
+week_set = [10.5,31.5,52.5,73.5]
+plt.tick_params(axis='both', bottom=False)
+plt.xticks(week_set,['Week 1', 'Week 2','Week 3','Week 4'],fontsize=10)
+plt.yticks([0,1,2,3],['R1','R2','R3','R4'],fontsize=8)
+plt.tick_params(axis = "both", which = "both", bottom = False, left = False)
+
+# 7. Some Summary Diagnostics
+sum_value = 0
+for row in value_matrix:
+    print("Resident ", row[0], "works ", row[1], " shifts at a value of ", row[2])
+    sum_value = sum_value + row[2]
+print("total value was ", sum_value)
 
 # Output for computational time
 time_elapsed = (time.perf_counter() - time_start)
