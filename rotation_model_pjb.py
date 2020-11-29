@@ -7,6 +7,8 @@ import time
 ################################################################################
 # Loose ends and sundries
 
+np.random.seed(106)
+
 # timer to measure computational time
 time_start = time.perf_counter()
 
@@ -16,7 +18,7 @@ rotation_model = cp_model.CpModel()
 # Other variables
 
 residents = 28
-blocks = 10
+blocks = 13
 clinics = 7
 
 # indices to subset for year, S_0 = 1st year, etc
@@ -24,7 +26,12 @@ years = [[0,1,2,3,4,5,6],[7,8,9,10,11,12,13],[14,15,16,17,18,19,20],[21,22,23,24
 
 
 # Initialize vacation preferences
-vac_pref = np.random.randint(low = 1, high = 4, size = (residents, blocks)) 
+prefs = [1,2,3,4,5,6,7,8,9,10,11,12,13] 
+vac_pref = []
+for r in range(residents):
+    vac_pref.append(np.random.choice(prefs, blocks, replace=False))
+        
+#vac_pref = np.random.randint(low = 1, high = 4, size = (residents, blocks)) 
         
 
 
@@ -35,15 +42,14 @@ x = {}
 for r in range(residents):
     for b in range(blocks):
         for c in range(clinics):
-            x[(r,b,c)] = rotation_model.NewBoolVar('x_%i%i%i' % (r, b, c))
+            x[(r,b,c)] = rotation_model.NewBoolVar('x_r%ib%ic%i' % (r, b, c))
 
 # b. y_rbc is binary, 1 = resident r is scheduled for vacation during clinic c in block b
 y = {}
 for r in range(residents):
     for b in range(blocks):
         for c in range(clinics):
-            y[(r,b,c)] = rotation_model.NewBoolVar('y_%i%i%i' % (r, b, c))
-
+            y[(r,b,c)] = rotation_model.NewBoolVar('y_r%ib%ic%i' % (r, b, c))
 
 
 ################################################################################
@@ -57,7 +63,7 @@ for r in range(residents):
 for r in range(residents):
     for c in range(clinics):
         rotation_model.Add(sum(x[(r,b,c)] for b in range(blocks)) >= 1) 
-        rotation_model.Add(sum(x[(r,b,c)] for b in range(blocks)) <= 2)
+        rotation_model.Add(sum(x[(r,b,c)] for b in range(blocks)) <= 3)
 
 # c. Each clinic must have one resident from each year
 for b in range(blocks):
@@ -69,13 +75,13 @@ for b in range(blocks):
 for r in range(residents):
    rotation_model.Add(sum(y[(r,b,c)] 
             for b in range(blocks)
-            for c in range(clinics)) == 4)
+            for c in range(clinics)) == 2)
 
 # e. Hard clinics (5-7) should not be back-to-back
 for r in range(residents):
     for b in range(blocks-1):
-        rotation_model.Add((sum(y[(r,b,c)] for c in range(4,7))) + 
-                           (sum(y[(r,b+1,c)] for c in range(4,7))) <= 1)
+        rotation_model.Add((sum(x[(r,b,c)] for c in range(4,7))) + 
+                            (sum(x[(r,b+1,c)] for c in range(4,7))) <= 1)
 
 # f. Vacations can only occur during clinics 1-4
 for r in range(residents):
@@ -106,33 +112,41 @@ rotation_model.Minimize(
             )) 
 
 
-
 ################################################################################
 # 4. Solver
 solver = cp_model.CpSolver()
-status = solver.Solve(rotation_model)
+printer = cp_model.ObjectiveSolutionPrinter()
+status = solver.SolveWithSolutionCallback(rotation_model, printer)
 
 
 ################################################################################
 # 5. Grid to show preference matrix
 
 
-for r in range(residents):
-    for b in range(blocks):
-        print(vac_pref[r][b], end = " ")
-    print("")
+# for r in range(residents):
+#     for b in range(blocks):
+#         print(vac_pref[r][b], end = " ")
+#     print("")
 
 
 ################################################################################
 # 6. Grid to show rotations and clinics
-#     for b in range(blocks):
-#         for c in range(clinics):
-#             print(solver.Value(y[(r, b, c)]), end = " ")
-#         print(" | ", end = " ")
-#     print("")
+if status == cp_model.FEASIBLE:
+    print("Solution = ", solver.ObjectiveValue())
+    # for r in range(residents):
+    #     for b in range(blocks):
+    #         for c in range(clinics):
+    #             print(solver.Value(x[(r,b,c)]), end = "")
+    #         print(" | ", end = " ")
+    #     print("")
+    
+    # for r in range(residents):
+    #     for b in range(blocks):
+    #         print(sum(solver.Value(y[(r,b,c)]) for c in range(clinics)), end = "")
+    #     print("")
+else:
+    print("no solution")
 
-print("Solution = ", solver.ObjectiveValue())
 
 time_elapsed = (time.perf_counter() - time_start)
-print(status)
 print("This run took ", time_elapsed)
