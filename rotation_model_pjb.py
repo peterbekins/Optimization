@@ -7,7 +7,7 @@ import time
 ################################################################################
 # Loose ends and sundries
 
-np.random.seed(106)
+#np.random.seed(359)
 
 # timer to measure computational time
 time_start = time.perf_counter()
@@ -26,7 +26,9 @@ years = [[0,1,2,3,4,5,6],[7,8,9,10,11,12,13],[14,15,16,17,18,19,20],[21,22,23,24
 
 
 # Initialize vacation preferences
-prefs = [1,2,3,4,5,6,7,8,9,10,11,12,13] 
+prefs = [1,1,2,2,10,10,10,10,10,10,10,10,10] 
+#prefs = [1,2,3,4,4,4,4,4,4,4,4,4,4] 
+#prefs = [1,2,3,4,5,6,7,8,9,10,11,12,13] 
 vac_pref = []
 for r in range(residents):
     vac_pref.append(np.random.choice(prefs, blocks, replace=False))
@@ -51,6 +53,13 @@ for r in range(residents):
         for c in range(clinics):
             y[(r,b,c)] = rotation_model.NewBoolVar('y_r%ib%ic%i' % (r, b, c))
 
+# c. d_mrbc is binary, 1 indicates that resident m and resident r worked together
+d = {}
+for m in range(residents):
+    for r in range(residents):
+        for b in range(blocks):
+            for c in range(clinics):
+                d[(m,r,b,c)] = rotation_model.NewBoolVar('d_m%in%ib%ic%i' % (m, r, b, c))
 
 ################################################################################
 # 2. Constraints
@@ -71,7 +80,7 @@ for b in range(blocks):
         for year in years:
             rotation_model.Add(sum(x[(y,b,c)] for y in year) == 1) 
 
-# d. Each resident must take four vacations
+# d. Each resident must take two vacations
 for r in range(residents):
    rotation_model.Add(sum(y[(r,b,c)] 
             for b in range(blocks)
@@ -100,6 +109,13 @@ for b in range(blocks):
     for c in range(clinics):
         rotation_model.Add(sum(y[(r,b,c)] for r in range(residents)) <= 2)
 
+# i. Social Constrain
+for m in range(residents):
+    for n in range(residents):
+        rotation_model.Add(sum((x[(m,b,c)]+x[(n,b,c)])+2*d[(m,n,b,c)] 
+                            for b in range(blocks)
+                            for c in range(clinics)) >= 2)
+
 
 ################################################################################
 # 3. Objective Function
@@ -109,7 +125,14 @@ rotation_model.Minimize(
             for r in range(residents)
             for b in range(blocks)
             for c in range(clinics)
-            )) 
+            )
+        + sum(d[(m,n,b,c)]
+            for m in range(residents-1)
+            for n in range(m,residents)
+            for b in range(blocks)
+            for c in range(clinics)
+            )
+        )
 
 
 ################################################################################
@@ -131,8 +154,8 @@ status = solver.SolveWithSolutionCallback(rotation_model, printer)
 
 ################################################################################
 # 6. Grid to show rotations and clinics
-if status == cp_model.FEASIBLE:
-    print("Solution = ", solver.ObjectiveValue())
+if status == cp_model.OPTIMAL:
+    print("Optimal solution = ", solver.ObjectiveValue())
     # for r in range(residents):
     #     for b in range(blocks):
     #         for c in range(clinics):
@@ -144,8 +167,10 @@ if status == cp_model.FEASIBLE:
     #     for b in range(blocks):
     #         print(sum(solver.Value(y[(r,b,c)]) for c in range(clinics)), end = "")
     #     print("")
+elif status == cp_model.FEASIBLE:
+    print("Best feasible solution = ", solver.ObjectiveValue())
 else:
-    print("no solution")
+    print("No feasible solution")
 
 
 time_elapsed = (time.perf_counter() - time_start)
